@@ -1,0 +1,11 @@
+**/target/
+**/node_modules/
+**/dist/
+**/artifacts/
+.idea/
+*.iml
+.DS_Store
+.env
+frontend/.angular/
+backend/.mvn/
+*.log
