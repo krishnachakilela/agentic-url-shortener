@@ -137,6 +137,31 @@ class OrchestrationEngineTest {
         assertThat(release.getStageKey()).isEqualTo("release");
         assertThat(release.getOutputJson()).contains("gates");
         assertThat(release.getOutputJson()).contains("security");
+        assertThat(release.getOutputJson()).contains("live-redirect-probe");
+        assertThat(release.getOutputJson()).contains("\"measured\":true");
+    }
+
+    @Test
+    void test_greenfield_summary_states_fixture_agents_and_engineered_domain() {
+        // Arrange
+        OrchestrationRun run = orchestrationEngine.startRun(
+                ScenarioType.GREENFIELD,
+                "Honest summary",
+                "Build a URL shortener with analytics and reliability features"
+        );
+        orchestrationEngine.advance(run.getId());
+        StageInstance release = stageInstanceRepository.findByRunIdAndStatus(run.getId(), StageStatus.AWAITING_APPROVAL)
+                .getFirst();
+
+        // Act
+        orchestrationEngine.decideGate(run.getId(), release.getId(), true, "reviewer", "Looks good");
+
+        // Assert
+        OrchestrationRun current = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(current.getSummaryMarkdown()).contains("engineered independently");
+        assertThat(current.getSummaryMarkdown()).contains("fixture mode");
+        assertThat(current.getSummaryMarkdown()).contains("live-redirect-probe");
+        assertThat(current.getSummaryMarkdown()).doesNotContain("Agents built the URL shortener");
     }
 
     @Test

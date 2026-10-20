@@ -2,6 +2,8 @@
 
 A working prototype that turns a natural-language engineering requirement into a reviewable SDLC outcome through a governed agentic orchestration layer, demonstrated against a Java/Angular URL shortener domain.
 
+The URL shortener APIs are engineered independently. Fixture-mode agents orchestrate stages and propose artifacts; they do not author the domain service. Release SLO evidence is measured via a live redirect latency probe.
+
 ## Context
 
 | Item | Value |
@@ -109,7 +111,7 @@ Stages form an explicit dependency graph (not a linear script):
 - optional testing failure injection via `TESTING_FAIL_UNTIL_ATTEMPT` to demo the retry/replan loop offline
 - audit-grade lineage at every state transition: prompt/response history, dependency graph, gate decisions, MTTR, retry counts, agent latency
 - Micrometer metrics: success rate, retries, rollbacks, MTTR, latency
-- ambiguous release gates enforced in `PolicyGuardrails`: security, compliance (`criticalVulns`), and SLO (`p99RedirectLatencyMs` under 10 ms)
+- ambiguous release gates enforced in `PolicyGuardrails`: security, compliance (`criticalVulns`), and SLO requiring **measured** `live-redirect-probe` evidence (`p99RedirectLatencyMs` under 10 ms)
 
 ## API surface
 
@@ -159,7 +161,8 @@ Copy `.env.example`. Do not commit secrets.
 ## Risks, trade-offs, limitations
 
 - Fixture agents are deterministic by design; live LLM integration is a seam (`FixtureStageAgentRegistry`) and intentionally not required for the demo.
-- Agents propose artifacts; humans own release-class approvals.
+- Agents propose artifacts and coordinate gated stages; humans own release-class approvals. The shortener domain itself is hand-engineered.
+- SLO release evidence is not fixture-asserted: `RedirectLatencyProbe` creates a short URL and measures in-process resolve latency.
 - In-process DAG engine favors clarity over a Temporal/Camunda deployment for a 2–3 day prototype.
 - Redis is optional; local rate limiting falls back to an in-memory window.
 - Ambiguous requirements are resolved by recording assumptions rather than blocking indefinitely.

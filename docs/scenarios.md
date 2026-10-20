@@ -70,8 +70,10 @@ Shared governance applies to every scenario below.
 |---|---|
 | Security | Open-redirect validation (scheme/host allow-list) and rate-limiting checks on create/redirect paths |
 | Compliance | Vulnerability scanning posture on dependencies (declared in release readiness artifact; fail gate on unresolved critical findings) |
-| SLO | Synthetic load / redirect latency check ensuring redirect latency under 10 ms to support the 99.9% redirect-path SLO |
+| SLO | **Measured** `live-redirect-probe`: create a short URL, resolve N times in-process, require p99 under 10 ms. Self-asserted fixture latency is rejected by policy. |
 
 A failed gate increments the retry/re-plan path where remediable; persistent failure pauses for human approval or safe-stop rather than silent release.
+
+**Positioning:** The URL shortener domain is engineered independently. Fixture agents orchestrate and propose artifacts; they do not build the service. Only the SLO gate above is live-measured against that domain.
 
 **Lineage:** Save prompt/response history, dependency execution graph, MTTR, retry counts, agent execution latency, recorded assumptions, and per-gate pass/fail evidence to the audit log at each state transition.

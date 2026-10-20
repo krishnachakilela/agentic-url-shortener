@@ -20,6 +20,7 @@ public class PolicyGuardrails {
       "(?i)(password|api[_-]?key|secret|token)\\s*[:=]\\s*\\S+"
   );
   private static final double MAX_REDIRECT_P99_MS = 10.0;
+  private static final String LIVE_REDIRECT_PROBE = "live-redirect-probe";
 
   private final ObjectMapper objectMapper;
 
@@ -93,6 +94,12 @@ public class PolicyGuardrails {
   private void requireSloGate(JsonNode slo, List<String> violations) {
     if (slo.isMissingNode() || !slo.path("passed").asBoolean(false)) {
       violations.add("slo gate failed or missing");
+      return;
+    }
+    // Reject self-asserted fixture latency; require live domain measurement.
+    if (!slo.path("measured").asBoolean(false)
+        || !LIVE_REDIRECT_PROBE.equals(slo.path("evidenceSource").asString(""))) {
+      violations.add("SLO gate requires measured live-redirect-probe evidence");
       return;
     }
     if (slo.path("p99RedirectLatencyMs").isNumber()

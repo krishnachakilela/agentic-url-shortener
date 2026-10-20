@@ -480,18 +480,27 @@ public class OrchestrationEngine {
     sb.append("# Final Engineering Summary\n\n");
     sb.append("## Scenario\n").append(run.getScenario()).append("\n\n");
     sb.append("## Requirement\n").append(run.getRequirementText()).append("\n\n");
+    sb.append("## Positioning (what agents did vs did not do)\n");
+    sb.append("- The URL shortener domain (APIs, persistence, analytics, open-redirect controls, ")
+        .append("rate limiting) was engineered independently of the agent runtime.\n");
+    sb.append("- Orchestration agents run in fixture mode: they decompose work, emit reviewable ")
+        .append("artifacts, and advance gated SDLC stages. They propose; they do not author ")
+        .append("or patch the shortener service.\n");
+    sb.append("- Release SLO evidence uses a live-redirect-probe against the engineered domain ")
+        .append("(measured resolve latency), not a self-asserted fixture number.\n\n");
     sb.append("## Assumptions\n").append(run.getAssumptionsJson()).append("\n\n");
     sb.append("## Stages\n");
     for (StageInstance stage : stages) {
       sb.append("- ").append(stage.getStageKey()).append(": ").append(stage.getStatus()).append("\n");
     }
     sb.append("\n## Risks / Trade-offs\n");
-    sb.append("- Fixture agents are deterministic; live LLM mode needs stronger output validation.\n");
+    sb.append("- Fixture agents are deterministic; a future live LLM mode needs stronger output validation.\n");
     sb.append("- Human approval is mandatory for release-class actions.\n");
     sb.append("- Retry exhaustion triggers automated rollback and pauses for human replan.\n");
+    sb.append("- Compliance vulnerability posture remains declarative in fixture mode; SLO is measured.\n");
     sb.append("\n## Validation\n");
     sb.append("- Entry/exit policy gates enforced.\n");
-    sb.append("- Ambiguous releases require security, compliance, and SLO gate evidence.\n");
+    sb.append("- Ambiguous releases require security, compliance, and measured live-redirect-probe SLO evidence.\n");
     sb.append("- Audit lineage persisted for every transition.\n");
     return sb.toString();
   }

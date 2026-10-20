@@ -1,6 +1,7 @@
 package com.schwab.agentic.orchestration.agents;
 
 import tools.jackson.databind.ObjectMapper;
+import com.schwab.agentic.orchestration.application.RedirectLatencyProbe;
 import com.schwab.agentic.orchestration.domain.OrchestrationRun;
 import com.schwab.agentic.orchestration.domain.ScenarioType;
 import com.schwab.agentic.orchestration.domain.StageInstance;
@@ -14,17 +15,24 @@ import java.util.Map;
 
 /**
  * Deterministic fixture agents for offline demos (no live LLM required).
- * Swap AGENT_MODE later for Spring AI / LangChain4j without changing the orchestrator.
+ * They propose reviewable artifacts; they do not author the URL shortener domain.
+ * Release SLO evidence is measured live via {@link RedirectLatencyProbe}.
  */
 @Component
 public class FixtureStageAgentRegistry {
 
   private final ObjectMapper objectMapper;
   private final AppProperties appProperties;
+  private final RedirectLatencyProbe redirectLatencyProbe;
 
-  public FixtureStageAgentRegistry(ObjectMapper objectMapper, AppProperties appProperties) {
+  public FixtureStageAgentRegistry(
+      ObjectMapper objectMapper,
+      AppProperties appProperties,
+      RedirectLatencyProbe redirectLatencyProbe
+  ) {
     this.objectMapper = objectMapper;
     this.appProperties = appProperties;
+    this.redirectLatencyProbe = redirectLatencyProbe;
   }
 
   public StageAgent resolve(StageType stageType) {
@@ -150,26 +158,46 @@ public class FixtureStageAgentRegistry {
   }
 
   private StageAgent.AgentResult release(OrchestrationRun run, StageInstance stage, String upstream) {
+    RedirectLatencyProbe.ProbeResult probe = redirectLatencyProbe.measure();
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("checklist", List.of(
         "Security headers present",
         "Open redirect controls verified",
         "Approvals recorded",
-        "Metrics exported"
+        "Metrics exported",
+        "Live redirect latency probed against engineered domain"
+    ));
+    payload.put("domainPositioning", Map.of(
+        "urlShortener", "Engineered independently (APIs, persistence, analytics, validation)",
+        "fixtureAgents", "Propose artifacts and coordinate SDLC stages; do not author domain code"
     ));
     if (run.getScenario() == ScenarioType.AMBIGUOUS) {
-      payload.put("gates", ambiguousReleaseGates());
+      payload.put("gates", ambiguousReleaseGates(probe));
+    } else {
+      payload.put("liveSloEvidence", sloEvidence(probe));
     }
-    payload.put("releaseReady", true);
+    payload.put("releaseReady", probe.passed());
     payload.put("upstream", upstream);
-    return StageAgent.AgentResult.ok(
-        toJson(payload),
-        "# Release Readiness\n\nAll gates satisfied for " + run.getScenario() + ".\n",
-        "release-readiness.md"
-    );
+
+    String artifact = "# Release Readiness\n\n"
+        + "Scenario: " + run.getScenario() + "\n\n"
+        + "## Positioning\n"
+        + "- URL shortener domain is engineered independently.\n"
+        + "- Fixture agents orchestrate and propose artifacts; they did not build the service.\n\n"
+        + "## Live SLO probe\n"
+        + "- evidenceSource: " + probe.evidenceSource() + "\n"
+        + "- p99RedirectLatencyMs: " + probe.p99RedirectLatencyMs() + "\n"
+        + "- samples: " + probe.samples() + "\n"
+        + "- passed: " + probe.passed() + "\n"
+        + "- detail: " + probe.detail() + "\n";
+
+    if (!probe.passed()) {
+      return StageAgent.AgentResult.fail(toJson(payload));
+    }
+    return StageAgent.AgentResult.ok(toJson(payload), artifact, "release-readiness.md");
   }
 
-  private Map<String, Object> ambiguousReleaseGates() {
+  private Map<String, Object> ambiguousReleaseGates(RedirectLatencyProbe.ProbeResult probe) {
     Map<String, Object> security = new LinkedHashMap<>();
     security.put("passed", true);
     security.put("checks", List.of("open-redirect-allowlist", "create-and-redirect-rate-limit"));
@@ -178,17 +206,26 @@ public class FixtureStageAgentRegistry {
     compliance.put("passed", true);
     compliance.put("criticalVulns", 0);
     compliance.put("scanner", "fixture-dependency-posture");
-
-    Map<String, Object> slo = new LinkedHashMap<>();
-    slo.put("passed", true);
-    slo.put("p99RedirectLatencyMs", 3.0);
-    slo.put("targetAvailability", "99.9%");
+    compliance.put("note", "Dependency posture remains declarative in fixture mode");
 
     Map<String, Object> gates = new LinkedHashMap<>();
     gates.put("security", security);
     gates.put("compliance", compliance);
-    gates.put("slo", slo);
+    gates.put("slo", sloEvidence(probe));
     return gates;
+  }
+
+  private Map<String, Object> sloEvidence(RedirectLatencyProbe.ProbeResult probe) {
+    Map<String, Object> slo = new LinkedHashMap<>();
+    slo.put("passed", probe.passed());
+    slo.put("p99RedirectLatencyMs", probe.p99RedirectLatencyMs());
+    slo.put("samples", probe.samples());
+    slo.put("shortCode", probe.shortCode());
+    slo.put("measured", true);
+    slo.put("evidenceSource", probe.evidenceSource());
+    slo.put("detail", probe.detail());
+    slo.put("targetAvailability", "99.9%");
+    return slo;
   }
 
   private String normalizeIntent(OrchestrationRun run) {

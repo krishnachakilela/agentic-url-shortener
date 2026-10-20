@@ -50,7 +50,7 @@ class PolicyGuardrailsTest {
     }
 
     @Test
-    void test_evaluate_exit_ambiguous_release_valid_gates_allowed() {
+    void test_evaluate_exit_ambiguous_release_valid_measured_gates_allowed() {
         // Arrange
         String output = """
                 {
@@ -58,7 +58,12 @@ class PolicyGuardrailsTest {
                   "gates": {
                     "security": {"passed": true, "checks": ["open-redirect"]},
                     "compliance": {"passed": true, "criticalVulns": 0},
-                    "slo": {"passed": true, "p99RedirectLatencyMs": 3.0}
+                    "slo": {
+                      "passed": true,
+                      "p99RedirectLatencyMs": 3.0,
+                      "measured": true,
+                      "evidenceSource": "live-redirect-probe"
+                    }
                   }
                 }
                 """;
@@ -71,6 +76,28 @@ class PolicyGuardrailsTest {
     }
 
     @Test
+    void test_evaluate_exit_ambiguous_release_self_asserted_slo_rejected() {
+        // Arrange — fixture-only latency without live probe evidence must fail
+        String output = """
+                {
+                  "gates": {
+                    "security": {"passed": true},
+                    "compliance": {"passed": true, "criticalVulns": 0},
+                    "slo": {"passed": true, "p99RedirectLatencyMs": 3.0}
+                  }
+                }
+                """;
+
+        // Act
+        PolicyGuardrails.PolicyResult result = policyGuardrails.evaluateExit(releaseStage, ambiguousRun, output);
+
+        // Assert
+        assertThat(result.allowed()).isFalse();
+        assertThat(result.violations()).anyMatch(v -> v.toLowerCase().contains("live-redirect-probe")
+            || v.toLowerCase().contains("measured"));
+    }
+
+    @Test
     void test_evaluate_exit_ambiguous_release_slo_latency_too_high_rejected() {
         // Arrange
         String output = """
@@ -78,7 +105,12 @@ class PolicyGuardrailsTest {
                   "gates": {
                     "security": {"passed": true},
                     "compliance": {"passed": true, "criticalVulns": 0},
-                    "slo": {"passed": true, "p99RedirectLatencyMs": 25.0}
+                    "slo": {
+                      "passed": true,
+                      "p99RedirectLatencyMs": 25.0,
+                      "measured": true,
+                      "evidenceSource": "live-redirect-probe"
+                    }
                   }
                 }
                 """;
