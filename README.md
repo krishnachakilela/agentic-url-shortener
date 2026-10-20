@@ -216,4 +216,5 @@ URL Shortener
 <img width="3456" height="1646" alt="image" src="https://github.com/user-attachments/assets/6c46e6d8-a67d-46b8-9ebf-896c5419c9f7" />
 
 Metrics Screen 
-<img width="3444" height="1512" alt="image" src="https://github.com/user-attachments/assets/923491de-bcec-4927-ba2f-fc7a3d21019a" />
+<img width="3452" height="1400" alt="image" src="https://github.com/user-attachments/assets/d48ec665-a7ec-42aa-a866-aca75064e0bd" />
+
