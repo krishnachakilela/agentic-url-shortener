@@ -180,3 +180,40 @@ See [docs/scenarios.md](docs/scenarios.md) for greenfield, brownfield, and ambig
 - greenfield testing sync-barrier retry/re-plan/rollback loop
 - lineage recording shared across all scenarios
 - formal security, compliance, and SLO gate policies for the ambiguous scenario
+
+
+
+Screen snips of the application 
+
+Homepage
+<img width="3440" height="1798" alt="image" src="https://github.com/user-attachments/assets/310150b5-2bf9-4c79-a359-dd984f4ad0e3" />
+
+Starting an orchestration run with GreenField, BrownField, Ambigious
+<img width="2592" height="868" alt="image" src="https://github.com/user-attachments/assets/a9307bff-9bdd-4350-ad5c-e7433325e219" />
+
+GreenField Demo
+<img width="3158" height="1482" alt="image" src="https://github.com/user-attachments/assets/fa4ccd3e-01d4-48d1-afa1-968bc4cd8068" />
+
+Dependency Graph Stages
+<img width="3442" height="1024" alt="image" src="https://github.com/user-attachments/assets/efe8011d-0f9d-470c-85fe-1d7ca274cee1" />
+
+Dependency Graph succeeded Stages 
+<img width="3448" height="1500" alt="image" src="https://github.com/user-attachments/assets/9b2978a5-7192-4748-af65-b10cc511e3f9" />
+
+Dependency Graph Rollback Stages 
+<img width="3456" height="1492" alt="image" src="https://github.com/user-attachments/assets/e6e17304-99b7-4ff5-871b-1beb306b4a00" />
+
+Decision Lienage
+<img width="3456" height="1668" alt="image" src="https://github.com/user-attachments/assets/739c9eb6-4077-4d4c-aba3-0192cf2b425d" />
+
+Replan screen
+<img width="2896" height="428" alt="image" src="https://github.com/user-attachments/assets/75330428-5267-41c0-ba93-becfd0d8d845" />
+
+Recent runs screen 
+<img width="2468" height="726" alt="image" src="https://github.com/user-attachments/assets/3c9be589-b56a-4d9f-8067-a1224e76482f" />
+
+URL Shortener
+<img width="3456" height="1646" alt="image" src="https://github.com/user-attachments/assets/6c46e6d8-a67d-46b8-9ebf-896c5419c9f7" />
+
+Metrics Screen 
+<img width="3444" height="1512" alt="image" src="https://github.com/user-attachments/assets/923491de-bcec-4927-ba2f-fc7a3d21019a" />
