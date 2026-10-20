@@ -1,5 +1,6 @@
 package com.schwab.agentic.urlshortener.api;
 
+import com.schwab.agentic.urlshortener.application.RateLimiter;
 import com.schwab.agentic.urlshortener.application.UrlShortenerService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
@@ -18,15 +19,20 @@ public class RedirectController {
   private static final Pattern CODE_PATTERN = Pattern.compile("^[A-Za-z0-9]{4,16}$");
 
   private final UrlShortenerService urlShortenerService;
+  private final RateLimiter rateLimiter;
 
-  public RedirectController(UrlShortenerService urlShortenerService) {
+  public RedirectController(UrlShortenerService urlShortenerService, RateLimiter rateLimiter) {
     this.urlShortenerService = urlShortenerService;
+    this.rateLimiter = rateLimiter;
   }
 
   @GetMapping("/r/{code}")
   public ResponseEntity<Void> redirect(@PathVariable String code, HttpServletRequest request) {
     if (!CODE_PATTERN.matcher(code).matches()) {
       return ResponseEntity.badRequest().build();
+    }
+    if (!rateLimiter.allow(clientKey(request))) {
+      return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
     }
     String target = urlShortenerService.resolveAndTrack(
         code,
@@ -36,5 +42,13 @@ public class RedirectController {
     return ResponseEntity.status(HttpStatus.FOUND)
         .location(URI.create(target))
         .build();
+  }
+
+  private String clientKey(HttpServletRequest request) {
+    String forwarded = request.getHeader("X-Forwarded-For");
+    if (forwarded != null && !forwarded.isBlank()) {
+      return forwarded.split(",")[0].trim();
+    }
+    return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
   }
 }

@@ -15,10 +15,16 @@ public class WebSecurityConfig implements WebMvcConfigurer {
 
   private final AppProperties appProperties;
   private final SecurityHeadersInterceptor securityHeadersInterceptor;
+  private final LocalAdminInterceptor localAdminInterceptor;
 
-  public WebSecurityConfig(AppProperties appProperties, SecurityHeadersInterceptor securityHeadersInterceptor) {
+  public WebSecurityConfig(
+      AppProperties appProperties,
+      SecurityHeadersInterceptor securityHeadersInterceptor,
+      LocalAdminInterceptor localAdminInterceptor
+  ) {
     this.appProperties = appProperties;
     this.securityHeadersInterceptor = securityHeadersInterceptor;
+    this.localAdminInterceptor = localAdminInterceptor;
   }
 
   @Bean
@@ -38,5 +44,6 @@ public class WebSecurityConfig implements WebMvcConfigurer {
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(securityHeadersInterceptor);
+    registry.addInterceptor(localAdminInterceptor).addPathPatterns("/api/v1/orchestration/**");
   }
 }

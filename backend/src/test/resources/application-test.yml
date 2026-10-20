@@ -27,3 +27,5 @@ app:
     max-retries: 1
     stage-timeout-seconds: 30
     artifacts-dir: ${java.io.tmpdir}/agentic-artifacts-test
+    testing-fail-until-attempt: 0
+    require-local-admin: false

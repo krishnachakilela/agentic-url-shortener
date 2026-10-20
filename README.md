@@ -102,13 +102,14 @@ flowchart TB
 Stages form an explicit dependency graph (not a linear script):
 
 - sequential edges via `dependsOn`
-- parallel implement stages with a sync barrier into testing
+- parallel implement stages run concurrently (task executor) with a sync barrier into testing
 - human approval checkpoints for high-impact stages
 - policy guardrails on entry/exit (secrets redaction, release must be gated)
-- bounded retries with log feedback into the developer agent (max 3 test re-runs); exhaustion triggers automated rollback and human pause
+- bounded retries with failure logs fed back into implement/test agent context; exhaustion triggers automated rollback and pauses for human replan
+- optional testing failure injection via `TESTING_FAIL_UNTIL_ATTEMPT` to demo the retry/replan loop offline
 - audit-grade lineage at every state transition: prompt/response history, dependency graph, gate decisions, MTTR, retry counts, agent latency
 - Micrometer metrics: success rate, retries, rollbacks, MTTR, latency
-- ambiguous release gates: security (open-redirect + rate limit), compliance (dependency vuln posture), SLO (redirect latency under 10 ms for 99.9% target)
+- ambiguous release gates enforced in `PolicyGuardrails`: security, compliance (`criticalVulns`), and SLO (`p99RedirectLatencyMs` under 10 ms)
 
 ## API surface
 
@@ -135,10 +136,12 @@ cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 
 Backend coverage focuses on:
 
-- happy/sad URL create paths
+- happy/sad URL create paths and private-host rejection
 - redirect click tracking
-- greenfield run reaching release approval
-- gate approve/reject outcomes
+- greenfield / brownfield / ambiguous orchestration paths
+- gate approve/reject, safe-stop, rollback
+- injected testing failures with retry recovery and auto-rollback on exhaustion
+- ambiguous security / compliance / SLO release gate policy
 
 ## Configuration
 
@@ -150,6 +153,8 @@ Copy `.env.example`. Do not commit secrets.
 | `REDIS_ENABLED` | `false` | Enable Redis-backed rate limiting |
 | `CORS_ORIGINS` | `http://localhost:4200` | Explicit CORS allow-list |
 | `ARTIFACTS_DIR` | `./artifacts` | Stage artifact output |
+| `TESTING_FAIL_UNTIL_ATTEMPT` | `0` | Fail testing while attempt is below this value (demo retries) |
+| `REQUIRE_LOCAL_ADMIN` | `false` | When true, orchestration POSTs must come from loopback |
 
 ## Risks, trade-offs, limitations
 

@@ -22,17 +22,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class OrchestrationEngine {
 
   private static final Logger log = LoggerFactory.getLogger(OrchestrationEngine.class);
+  private static final String ACTOR_ORCHESTRATOR = "orchestrator";
+  private static final String ACTOR_SYSTEM = "system";
+  private static final String ACTOR_POLICY = "policy";
+  private static final String ACTOR_AGENT = "agent";
 
   private final OrchestrationRunRepository runRepository;
   private final StageInstanceRepository stageRepository;
@@ -91,7 +99,7 @@ public class OrchestrationEngine {
       runRepository.save(run);
       List<StageInstance> stages = graphFactory.buildGraph(run.getId(), scenario);
       stageRepository.saveAll(stages);
-      auditService.record(run.getId(), null, "RUN_CREATED", "system", toJson(Map.of(
+      auditService.record(run.getId(), null, "RUN_CREATED", ACTOR_SYSTEM, toJson(Map.of(
           "scenario", scenario.name(),
           "title", title
       )));
@@ -118,13 +126,14 @@ public class OrchestrationEngine {
     OrchestrationRun run = requireRun(runId);
     if (run.getStatus() == RunStatus.SAFE_STOPPED
         || run.getStatus() == RunStatus.SUCCEEDED
-        || run.getStatus() == RunStatus.ROLLED_BACK) {
+        || run.getStatus() == RunStatus.ROLLED_BACK
+        || run.getStatus() == RunStatus.FAILED) {
       return;
     }
 
     run.markRunning();
     runRepository.save(run);
-    auditService.record(runId, null, "RUN_ADVANCED", "orchestrator", "{}");
+    auditService.record(runId, null, "RUN_ADVANCED", ACTOR_ORCHESTRATOR, "{}");
 
     List<StageInstance> stages = stageRepository.findByRunIdOrderBySequenceOrderAsc(runId);
     markReadyStages(stages);
@@ -140,61 +149,145 @@ public class OrchestrationEngine {
       return;
     }
 
-    // Execute the full READY batch so parallel siblings still run when one stage pauses for approval.
+    List<StageInstance> parallelBatch = executable.stream()
+        .filter(StageInstance::isParallelGroup)
+        .toList();
+    List<StageInstance> serialBatch = executable.stream()
+        .filter(s -> !s.isParallelGroup())
+        .toList();
+
     boolean paused = false;
-    for (StageInstance stage : executable) {
-      boolean continueRun = executeStage(run, stage, stages);
+    if (!parallelBatch.isEmpty()) {
+      paused = !executeParallelBatch(run, parallelBatch, stages) || paused;
+    }
+    for (StageInstance stage : serialBatch) {
+      boolean continueRun = executeStage(run, stage, stages, null);
       if (!continueRun) {
         paused = true;
       }
     }
 
     stages = stageRepository.findByRunIdOrderBySequenceOrderAsc(runId);
-    if (paused || !stageRepository.findByRunIdAndStatus(runId, StageStatus.AWAITING_APPROVAL).isEmpty()) {
+    run = requireRun(runId);
+    if (run.getStatus() == RunStatus.ROLLED_BACK || run.getStatus() == RunStatus.FAILED) {
+      return;
+    }
+    if (!stageRepository.findByRunIdAndStatus(runId, StageStatus.AWAITING_APPROVAL).isEmpty()) {
       return;
     }
     if (allSucceeded(stages)) {
       completeSuccess(run, stages);
       return;
     }
-    if (!allTerminal(stages)) {
+    boolean hasReadyRetry = stages.stream().anyMatch(s -> s.getStatus() == StageStatus.READY);
+    if (!allTerminal(stages) || hasReadyRetry) {
+      if (paused && !hasReadyRetry) {
+        return;
+      }
       advanceInTransaction(runId);
     }
   }
 
-  private boolean executeStage(OrchestrationRun run, StageInstance stage, List<StageInstance> allStages) {
-    PolicyGuardrails.PolicyResult entry = policyGuardrails.evaluateEntry(stage, run.getRequirementText());
+  private boolean executeParallelBatch(
+      OrchestrationRun run,
+      List<StageInstance> parallelStages,
+      List<StageInstance> allStages
+  ) {
+    Map<String, String> inputs = new HashMap<>();
+    for (StageInstance stage : parallelStages) {
+      PolicyGuardrails.PolicyResult entry = policyGuardrails.evaluateEntry(stage, run);
+      if (!entry.allowed()) {
+        stage.fail(toJson(Map.of("policyViolations", entry.violations())));
+        stageRepository.save(stage);
+        auditService.record(run.getId(), stage.getStageKey(), "ENTRY_GATE_FAILED", ACTOR_POLICY, toJson(entry.violations()));
+        return handleFailure(run, stage);
+      }
+      stage.markRunning();
+      String input = buildUpstreamContext(allStages, stage);
+      stage.setInputJson(input);
+      stageRepository.save(stage);
+      inputs.put(stage.getId(), input);
+      auditService.record(run.getId(), stage.getStageKey(), "STAGE_STARTED", ACTOR_ORCHESTRATOR, input);
+    }
+
+    Map<String, StageAgent.AgentResult> results = new ConcurrentHashMap<>();
+    List<CompletableFuture<Void>> futures = new ArrayList<>();
+    for (StageInstance stage : parallelStages) {
+      String input = inputs.get(stage.getId());
+      StageAgent agent = agentRegistry.resolve(stage.getStageType());
+      futures.add(CompletableFuture.runAsync(
+          () -> results.put(stage.getId(), agent.execute(run, stage, input)),
+          taskExecutor
+      ));
+    }
+    try {
+      CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+    } catch (CompletionException ex) {
+      log.error("Parallel stage execution failed runId={}", run.getId(), ex);
+      for (StageInstance stage : parallelStages) {
+        if (!results.containsKey(stage.getId())) {
+          stage.fail(toJson(Map.of("error", "parallel_execution_failed")));
+          stageRepository.save(stage);
+        }
+      }
+      return handleFailure(run, parallelStages.getFirst());
+    }
+
+    boolean paused = false;
+    for (StageInstance stage : parallelStages) {
+      StageAgent.AgentResult result = results.get(stage.getId());
+      if (result == null) {
+        stage.fail(toJson(Map.of("error", "missing_parallel_result")));
+        stageRepository.save(stage);
+        return handleFailure(run, stage);
+      }
+      boolean continueRun = applyAgentResult(run, stage, result);
+      if (!continueRun) {
+        paused = true;
+      }
+    }
+    return !paused;
+  }
+
+  private boolean executeStage(
+      OrchestrationRun run,
+      StageInstance stage,
+      List<StageInstance> allStages,
+      StageAgent.AgentResult precomputed
+  ) {
+    PolicyGuardrails.PolicyResult entry = policyGuardrails.evaluateEntry(stage, run);
     if (!entry.allowed()) {
       stage.fail(toJson(Map.of("policyViolations", entry.violations())));
       stageRepository.save(stage);
-      auditService.record(run.getId(), stage.getStageKey(), "ENTRY_GATE_FAILED", "policy", toJson(entry.violations()));
+      auditService.record(run.getId(), stage.getStageKey(), "ENTRY_GATE_FAILED", ACTOR_POLICY, toJson(entry.violations()));
       return handleFailure(run, stage);
-    }
-
-    if (stage.isRequiresApproval() && stage.getStatus() != StageStatus.AWAITING_APPROVAL) {
-      // For implementation/release: run agent first as proposal, then gate
     }
 
     stage.markRunning();
     stage.setInputJson(buildUpstreamContext(allStages, stage));
     stageRepository.save(stage);
-    auditService.record(run.getId(), stage.getStageKey(), "STAGE_STARTED", "orchestrator", stage.getInputJson());
+    auditService.record(run.getId(), stage.getStageKey(), "STAGE_STARTED", ACTOR_ORCHESTRATOR, stage.getInputJson());
 
-    StageAgent agent = agentRegistry.resolve(stage.getStageType());
-    StageAgent.AgentResult result = agent.execute(run, stage, stage.getInputJson());
+    StageAgent.AgentResult result = precomputed != null
+        ? precomputed
+        : agentRegistry.resolve(stage.getStageType()).execute(run, stage, stage.getInputJson());
 
+    return applyAgentResult(run, stage, result);
+  }
+
+  private boolean applyAgentResult(OrchestrationRun run, StageInstance stage, StageAgent.AgentResult result) {
     if (!result.success()) {
       stage.fail(result.outputJson());
       stageRepository.save(stage);
-      auditService.record(run.getId(), stage.getStageKey(), "STAGE_FAILED", "agent", result.outputJson());
+      auditService.record(run.getId(), stage.getStageKey(), "STAGE_FAILED", ACTOR_AGENT, result.outputJson());
       return handleFailure(run, stage);
     }
 
-    PolicyGuardrails.PolicyResult exit = policyGuardrails.evaluateExit(stage, result.outputJson());
+    PolicyGuardrails.PolicyResult exit = policyGuardrails.evaluateExit(stage, run, result.outputJson());
     if (!exit.allowed()) {
       stage.fail(toJson(Map.of("policyViolations", exit.violations(), "output", result.outputJson())));
       stageRepository.save(stage);
-      auditService.record(run.getId(), stage.getStageKey(), "EXIT_GATE_FAILED", "policy", toJson(exit.violations()));
+      auditService.record(run.getId(), stage.getStageKey(), "EXIT_GATE_FAILED", ACTOR_POLICY, toJson(exit.violations()));
       return handleFailure(run, stage);
     }
 
@@ -208,14 +301,14 @@ public class OrchestrationEngine {
       stageRepository.save(stage);
       run.awaitApproval();
       runRepository.save(run);
-      auditService.record(run.getId(), stage.getStageKey(), "AWAITING_APPROVAL", "orchestrator", result.outputJson());
+      auditService.record(run.getId(), stage.getStageKey(), "AWAITING_APPROVAL", ACTOR_ORCHESTRATOR, result.outputJson());
       return false;
     }
 
     stage.succeed(result.outputJson(), artifactPath);
     stageRepository.save(stage);
     mergeContext(run, stage.getStageKey(), result.outputJson());
-    auditService.record(run.getId(), stage.getStageKey(), "STAGE_SUCCEEDED", "agent", result.outputJson());
+    auditService.record(run.getId(), stage.getStageKey(), "STAGE_SUCCEEDED", ACTOR_AGENT, result.outputJson());
     return true;
   }
 
@@ -269,23 +362,7 @@ public class OrchestrationEngine {
   }
 
   public OrchestrationRun rollback(String runId, String actor) {
-    return transactionTemplate.execute(status -> {
-      OrchestrationRun run = requireRun(runId);
-      List<StageInstance> stages = stageRepository.findByRunIdOrderBySequenceOrderAsc(runId);
-      for (StageInstance stage : stages) {
-        if (stage.getStatus() == StageStatus.SUCCEEDED
-            || stage.getStatus() == StageStatus.AWAITING_APPROVAL
-            || stage.getStatus() == StageStatus.FAILED) {
-          stage.rollback();
-          stageRepository.save(stage);
-        }
-      }
-      run.markRolledBack();
-      runRepository.save(run);
-      metrics.recordRollback();
-      auditService.record(runId, null, "ROLLBACK", actor, "{}");
-      return run;
-    });
+    return transactionTemplate.execute(status -> performRollback(requireRun(runId), actor, "ROLLBACK"));
   }
 
   public OrchestrationRun replan(String runId, String updatedRequirement, String actor) {
@@ -327,23 +404,54 @@ public class OrchestrationEngine {
   }
 
   private boolean handleFailure(OrchestrationRun run, StageInstance stage) {
+    mergeContext(run, "lastFailure", toJson(Map.of(
+        "stageKey", stage.getStageKey(),
+        "attempt", stage.getAttempt(),
+        "output", stage.getOutputJson() == null ? "" : stage.getOutputJson()
+    )));
+
     int maxRetries = appProperties.orchestration().maxRetries();
     if (stage.getAttempt() <= maxRetries) {
       run.incrementRetry();
       runRepository.save(run);
       metrics.recordRetry();
-      auditService.record(run.getId(), stage.getStageKey(), "RETRY_SCHEDULED", "orchestrator",
-          toJson(Map.of("attempt", stage.getAttempt())));
+      auditService.record(run.getId(), stage.getStageKey(), "RETRY_SCHEDULED", ACTOR_ORCHESTRATOR,
+          toJson(Map.of(
+              "attempt", stage.getAttempt(),
+              "maxRetries", maxRetries,
+              "failureFeedback", stage.getOutputJson() == null ? "" : stage.getOutputJson()
+          )));
+      // Re-queue without recursive advance so parallel siblings are not re-entered mid-batch.
       stage.markReady();
       stageRepository.save(stage);
-      advanceInTransaction(run.getId());
       return false;
     }
-    run.markFailed();
-    runRepository.save(run);
-    metrics.recordFailure(run);
-    auditService.record(run.getId(), stage.getStageKey(), "RUN_FAILED", "orchestrator", "{}");
+
+    auditService.record(run.getId(), stage.getStageKey(), "RETRY_EXHAUSTED", ACTOR_ORCHESTRATOR,
+        toJson(Map.of("attempt", stage.getAttempt(), "maxRetries", maxRetries)));
+    performRollback(run, ACTOR_ORCHESTRATOR, "AUTO_ROLLBACK_ON_RETRY_EXHAUSTION");
+    auditService.record(run.getId(), stage.getStageKey(), "AWAITING_HUMAN_AFTER_ROLLBACK", ACTOR_ORCHESTRATOR,
+        toJson(Map.of("hint", "Use replan or inspect audit lineage before continuing")));
     return false;
+  }
+
+  private OrchestrationRun performRollback(OrchestrationRun run, String actor, String eventType) {
+    List<StageInstance> stages = stageRepository.findByRunIdOrderBySequenceOrderAsc(run.getId());
+    for (StageInstance stage : stages) {
+      if (stage.getStatus() == StageStatus.SUCCEEDED
+          || stage.getStatus() == StageStatus.AWAITING_APPROVAL
+          || stage.getStatus() == StageStatus.FAILED
+          || stage.getStatus() == StageStatus.READY
+          || stage.getStatus() == StageStatus.RUNNING) {
+        stage.rollback();
+        stageRepository.save(stage);
+      }
+    }
+    run.markRolledBack();
+    runRepository.save(run);
+    metrics.recordRollback();
+    auditService.record(run.getId(), null, eventType, actor, "{}");
+    return run;
   }
 
   private void failRun(String runId) {
@@ -352,7 +460,7 @@ public class OrchestrationEngine {
           run.markFailed();
           runRepository.save(run);
           metrics.recordFailure(run);
-          auditService.record(runId, null, "RUN_FAILED", "orchestrator",
+          auditService.record(runId, null, "RUN_FAILED", ACTOR_ORCHESTRATOR,
               toJson(Map.of("detail", "internal_error")));
         }));
   }
@@ -363,7 +471,7 @@ public class OrchestrationEngine {
     run.markSucceeded(summary);
     runRepository.save(run);
     metrics.recordSuccess(run);
-    auditService.record(run.getId(), null, "RUN_SUCCEEDED", "orchestrator",
+    auditService.record(run.getId(), null, "RUN_SUCCEEDED", ACTOR_ORCHESTRATOR,
         toJson(Map.of("summaryPath", path)));
   }
 
@@ -380,8 +488,10 @@ public class OrchestrationEngine {
     sb.append("\n## Risks / Trade-offs\n");
     sb.append("- Fixture agents are deterministic; live LLM mode needs stronger output validation.\n");
     sb.append("- Human approval is mandatory for release-class actions.\n");
+    sb.append("- Retry exhaustion triggers automated rollback and pauses for human replan.\n");
     sb.append("\n## Validation\n");
     sb.append("- Entry/exit policy gates enforced.\n");
+    sb.append("- Ambiguous releases require security, compliance, and SLO gate evidence.\n");
     sb.append("- Audit lineage persisted for every transition.\n");
     return sb.toString();
   }
@@ -427,11 +537,16 @@ public class OrchestrationEngine {
             .ifPresent(s -> context.put(key, s.getOutputJson()));
       }
     }
+    if (stage.getAttempt() > 0 && stage.getOutputJson() != null && !stage.getOutputJson().isBlank()) {
+      context.put("lastFailure", stage.getOutputJson());
+      context.put("retryAttempt", stage.getAttempt());
+    }
     return toJson(context);
   }
 
   private void mergeContext(OrchestrationRun run, String stageKey, String outputJson) {
     try {
+      @SuppressWarnings("unchecked")
       Map<String, Object> context = objectMapper.readValue(
           run.getContextJson() == null ? "{}" : run.getContextJson(),
           Map.class

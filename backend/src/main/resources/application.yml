@@ -47,6 +47,9 @@ app:
     max-retries: 2
     stage-timeout-seconds: 120
     artifacts-dir: ${ARTIFACTS_DIR:./artifacts}
+    # Fail testing while attempt < this value (0 = disabled). Demo retry loops with e.g. 2.
+    testing-fail-until-attempt: ${TESTING_FAIL_UNTIL_ATTEMPT:0}
+    require-local-admin: ${REQUIRE_LOCAL_ADMIN:false}
 
 logging:
   level:

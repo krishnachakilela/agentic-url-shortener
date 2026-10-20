@@ -31,7 +31,9 @@ public record AppProperties(
       @NotBlank String agentMode,
       @Min(0) @Max(10) int maxRetries,
       @Min(10) @Max(3600) int stageTimeoutSeconds,
-      @NotBlank String artifactsDir
+      @NotBlank String artifactsDir,
+      @Min(0) @Max(10) int testingFailUntilAttempt,
+      boolean requireLocalAdmin
   ) {
   }
 }

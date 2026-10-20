@@ -23,10 +23,10 @@ Shared governance applies to every scenario below.
 
 | Condition | Behavior |
 |---|---|
-| Transient stage failure | Bounded retry (configured `max-retries`, demo default 2–3); stage attempt counter incremented; prior failure output attached as input context |
-| Test gate failure | Logs fed back to implement agents; re-enter testing after sync barrier; stop after max retries |
-| Max retries exhausted | Automated rollback of succeeded stages, run marked failed/rolled back, workflow paused for human decision |
-| Human reject at release | Safe-stop or explicit re-plan with updated requirement text |
+| Transient stage failure | Bounded retry (`app.orchestration.max-retries`); attempt counter incremented; prior failure output attached as `lastFailure` in upstream context |
+| Test gate failure | Fixture testing agent can inject failures via `TESTING_FAIL_UNTIL_ATTEMPT`; failure JSON (logs + feedback) is stored and re-fed on retry |
+| Max retries exhausted | `AUTO_ROLLBACK_ON_RETRY_EXHAUSTION`: stages rolled back, run marked `ROLLED_BACK`, audit records pause for human replan |
+| Human reject at release | Run marked failed; operator may safe-stop or replan with updated requirement text |
 
 **Validation:** Entry/exit policy gates, open-redirect controls in domain service, release approval required.
 
@@ -61,6 +61,8 @@ Shared governance applies to every scenario below.
 - Single-region deployment
 
 **Scope chosen under governance:** rate limiting, health, policy guardrails, release gates.
+
+**Orchestration differences:** `implement-api` and `release` both require human approval (assumption acceptance + formal release gates).
 
 **Formal release gate policies (checked before release):**
 

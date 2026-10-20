@@ -90,4 +90,92 @@ class OrchestrationEngineTest {
         assertThat(current.getStatus()).isEqualTo(RunStatus.SUCCEEDED);
         assertThat(current.getSummaryMarkdown()).contains("Final Engineering Summary");
     }
+
+    @Test
+    void test_brownfield_run_pauses_on_implement_api_change_control_gate() {
+        // Arrange
+        OrchestrationRun run = orchestrationEngine.startRun(
+                ScenarioType.BROWNFIELD,
+                "Add expiration",
+                "Add link expiration and analytics export"
+        );
+
+        // Act
+        orchestrationEngine.advance(run.getId());
+
+        // Assert
+        OrchestrationRun current = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(current.getStatus()).isEqualTo(RunStatus.AWAITING_APPROVAL);
+        StageInstance gated = stageInstanceRepository.findByRunIdAndStatus(run.getId(), StageStatus.AWAITING_APPROVAL)
+                .getFirst();
+        assertThat(gated.getStageKey()).isEqualTo("implement-api");
+    }
+
+    @Test
+    void test_ambiguous_run_records_assumptions_and_reaches_release_gate() {
+        // Arrange
+        OrchestrationRun run = orchestrationEngine.startRun(
+                ScenarioType.AMBIGUOUS,
+                "Enterprise readiness",
+                "Make the shortener more reliable and enterprise ready"
+        );
+
+        // Act
+        orchestrationEngine.advance(run.getId());
+        OrchestrationRun afterImplementGate = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(afterImplementGate.getAssumptionsJson()).contains("99.9%");
+        StageInstance implementApi = stageInstanceRepository.findByRunIdAndStatus(run.getId(), StageStatus.AWAITING_APPROVAL)
+                .getFirst();
+        assertThat(implementApi.getStageKey()).isEqualTo("implement-api");
+        orchestrationEngine.decideGate(run.getId(), implementApi.getId(), true, "reviewer", "Assumptions accepted");
+
+        // Assert
+        OrchestrationRun current = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(current.getStatus()).isEqualTo(RunStatus.AWAITING_APPROVAL);
+        StageInstance release = stageInstanceRepository.findByRunIdAndStatus(run.getId(), StageStatus.AWAITING_APPROVAL)
+                .getFirst();
+        assertThat(release.getStageKey()).isEqualTo("release");
+        assertThat(release.getOutputJson()).contains("gates");
+        assertThat(release.getOutputJson()).contains("security");
+    }
+
+    @Test
+    void test_safe_stop_halts_running_workflow() {
+        // Arrange
+        OrchestrationRun run = orchestrationEngine.startRun(
+                ScenarioType.GREENFIELD,
+                "Stop me",
+                "Build a URL shortener with analytics and reliability features"
+        );
+        orchestrationEngine.advance(run.getId());
+
+        // Act
+        orchestrationEngine.safeStop(run.getId(), "reviewer");
+
+        // Assert
+        OrchestrationRun current = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(current.getStatus()).isEqualTo(RunStatus.SAFE_STOPPED);
+    }
+
+    @Test
+    void test_manual_rollback_marks_stages_rolled_back() {
+        // Arrange
+        OrchestrationRun run = orchestrationEngine.startRun(
+                ScenarioType.GREENFIELD,
+                "Rollback me",
+                "Build a URL shortener with analytics and reliability features"
+        );
+        orchestrationEngine.advance(run.getId());
+
+        // Act
+        orchestrationEngine.rollback(run.getId(), "reviewer");
+
+        // Assert
+        OrchestrationRun current = runRepository.findById(run.getId()).orElseThrow();
+        assertThat(current.getStatus()).isEqualTo(RunStatus.ROLLED_BACK);
+        assertThat(current.getRollbackCount()).isGreaterThanOrEqualTo(1);
+        List<StageInstance> stages = stageInstanceRepository.findByRunIdOrderBySequenceOrderAsc(run.getId());
+        assertThat(stages).allMatch(s ->
+                s.getStatus() == StageStatus.ROLLED_BACK || s.getStatus() == StageStatus.PENDING);
+    }
 }
