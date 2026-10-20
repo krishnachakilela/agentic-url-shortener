@@ -1,0 +1,55 @@
+<section class="panel">
+  <h1>Start an orchestration run</h1>
+  <p class="lede">
+    Agents execute SDLC stages under policy gates. Humans approve high-impact steps.
+  </p>
+
+  <div class="form-grid">
+    <label>
+      Scenario
+      <select [(ngModel)]="scenario" (ngModelChange)="applyPreset()">
+        @for (item of scenarios; track item.value) {
+          <option [value]="item.value">{{ item.label }}</option>
+        }
+      </select>
+    </label>
+    <label>
+      Title
+      <input [(ngModel)]="title" maxlength="200"/>
+    </label>
+    <label class="full">
+      Requirement
+      <textarea [(ngModel)]="requirementText" rows="4" maxlength="4000"></textarea>
+    </label>
+  </div>
+
+  <button type="button" (click)="startRun()" [disabled]="loading">Start run</button>
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+</section>
+
+<section class="panel">
+  <div class="row">
+    <h2>Recent runs</h2>
+    <button type="button" class="ghost" (click)="refresh()">Refresh</button>
+  </div>
+
+  @if (loading && runs.length === 0) {
+    <p>Loading…</p>
+  }
+
+  <div class="run-list">
+    @for (run of runs; track run.id) {
+      <a class="run-item" [routerLink]="['/runs', run.id]">
+        <div>
+          <strong>{{ run.title }}</strong>
+          <span>{{ run.scenario }}</span>
+        </div>
+        <span class="status" [attr.data-status]="run.status">{{ run.status }}</span>
+      </a>
+    } @empty {
+      <p class="muted">No runs yet. Start a greenfield scenario to begin.</p>
+    }
+  </div>
+</section>

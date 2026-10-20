@@ -1,0 +1,43 @@
+<section class="panel">
+  <h1>URL shortener</h1>
+  <p class="muted">Domain service used by greenfield/brownfield orchestration scenarios.</p>
+
+  <label>
+    Long URL
+    <input [(ngModel)]="url" type="url" autocomplete="url" />
+  </label>
+  <label>
+    Expires at (optional)
+    <div class="expires-row">
+      <input
+        type="datetime-local"
+        [(ngModel)]="expiresAtLocal"
+        [min]="minExpiresAt"
+        aria-label="Expiration date and time"
+      />
+      @if (expiresAtLocal) {
+        <button type="button" class="secondary" (click)="clearExpiry()">Clear</button>
+      }
+    </div>
+  </label>
+  <button type="button" (click)="create()">Create short link</button>
+
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+
+  @if (created) {
+    <div class="result">
+      <p><strong>Short URL:</strong> <a [href]="created.shortUrl" target="_blank" rel="noopener">{{ created.shortUrl }}</a></p>
+      <p><strong>Code:</strong> {{ created.shortCode }}</p>
+    </div>
+  }
+
+  @if (analytics) {
+    <div class="result">
+      <h2>Analytics</h2>
+      <p>Total clicks: {{ analytics.totalClicks }}</p>
+      <p>Last 24h: {{ analytics.clicksLast24h }}</p>
+    </div>
+  }
+</section>

@@ -1,0 +1,60 @@
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.85rem 0;
+}
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  width: 100%;
+}
+
+input[type="datetime-local"] {
+  min-height: 2.6rem;
+  color-scheme: light;
+}
+
+.expires-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.expires-row input {
+  flex: 1;
+}
+
+button {
+  border: 0;
+  border-radius: 0.55rem;
+  background: var(--ink);
+  color: #fff;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.result {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 0.7rem;
+  background: var(--surface-2);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: #9b1c1c;
+}
