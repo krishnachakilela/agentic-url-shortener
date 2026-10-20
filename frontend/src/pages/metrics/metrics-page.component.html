@@ -1,0 +1,38 @@
+<section class="panel">
+  <h1>Orchestration reliability metrics</h1>
+  @if (metrics) {
+    <div class="grid">
+      <article>
+        <span>Success rate</span>
+        <strong>{{ metrics.successRate | percent: '1.0-1' }}</strong>
+      </article>
+      <article>
+        <span>Retries</span>
+        <strong>{{ metrics.retryCount }}</strong>
+      </article>
+      <article>
+        <span>Rollbacks</span>
+        <strong>{{ metrics.rollbackCount }}</strong>
+      </article>
+      <article>
+        <span>MTTR (ms)</span>
+        <strong>{{ metrics.mttrMillis }}</strong>
+      </article>
+      <article>
+        <span>Mean latency (ms)</span>
+        <strong>{{ metrics.meanLatencyMillis | number: '1.0-0' }}</strong>
+      </article>
+    </div>
+
+    <h2>Runs by status</h2>
+    <ul>
+      @for (entry of statusEntries(); track entry.key) {
+        <li><span>{{ entry.key }}</span><strong>{{ entry.value }}</strong></li>
+      }
+    </ul>
+  } @else if (error) {
+    <p class="error">{{ error }}</p>
+  } @else {
+    <p>Loading…</p>
+  }
+</section>

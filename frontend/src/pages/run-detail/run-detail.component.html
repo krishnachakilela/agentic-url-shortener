@@ -1,0 +1,98 @@
+@if (run) {
+  <section class="panel">
+    <div class="row">
+      <div>
+        <h1>{{ run.title }}</h1>
+        <p class="muted">{{ run.scenario }} · {{ run.status }}</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="ghost" (click)="safeStop()">Safe stop</button>
+        <button type="button" class="danger" (click)="rollback()">Rollback</button>
+      </div>
+    </div>
+    <p>{{ run.requirementText }}</p>
+    @if (run.assumptionsJson && run.assumptionsJson !== '[]') {
+      <pre class="box">Assumptions: {{ run.assumptionsJson }}</pre>
+    }
+  </section>
+
+  @if (pendingApprovals.length > 0) {
+    <section class="panel approval">
+      <h2>Human approval required</h2>
+      <label>
+        Decided by
+        <input [(ngModel)]="decidedBy" />
+      </label>
+      <label>
+        Reason
+        <input [(ngModel)]="reason" />
+      </label>
+      @for (stage of pendingApprovals; track stage.id) {
+        <div class="approval-card">
+          <strong>{{ stage.stageKey }}</strong>
+          <pre>{{ stage.outputJson }}</pre>
+          <div class="actions">
+            <button type="button" (click)="decide(stage, true)">Approve</button>
+            <button type="button" class="danger" (click)="decide(stage, false)">Reject</button>
+          </div>
+        </div>
+      }
+    </section>
+  }
+
+  <section class="panel">
+    <h2>Dependency graph / stages</h2>
+    <div class="stages">
+      @for (stage of run.stages; track stage.id) {
+        <article>
+          <header>
+            <strong>{{ stage.stageKey }}</strong>
+            <span>{{ stage.status }}</span>
+          </header>
+          <p>depends on: {{ stage.dependsOn || '—' }}</p>
+          <p>
+            order {{ stage.sequenceOrder }}
+            @if (stage.parallelGroup) {
+              · parallel
+            }
+            @if (stage.requiresApproval) {
+              · gated
+            }
+          </p>
+        </article>
+      }
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Decision lineage</h2>
+    <ul class="audit">
+      @for (event of audit; track event.id) {
+        <li>
+          <span>{{ event.occurredAt | date: 'short' }}</span>
+          <strong>{{ event.eventType }}</strong>
+          <span>{{ event.stageKey || 'run' }} · {{ event.actor }}</span>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>Re-plan</h2>
+    <textarea [(ngModel)]="replanText" rows="3"></textarea>
+    <button type="button" (click)="replan()">Re-plan from updated requirement</button>
+  </section>
+
+  @if (run.summaryMarkdown) {
+    <section class="panel">
+      <h2>Engineering summary</h2>
+      <pre class="box">{{ run.summaryMarkdown }}</pre>
+    </section>
+  }
+} @else {
+  <p>Loading run…</p>
+}
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
